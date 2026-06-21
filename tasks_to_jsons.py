@@ -5,6 +5,8 @@ For now this is a skeleton: it walks the input directory, finds every task,
 and prints the task names. It writes nothing yet.
 """
 
+import re
+import json
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -12,6 +14,8 @@ from pathlib import Path
 from typing import Iterator, List, Optional
 
 from tap import Tap
+
+SUBTASK_MARKER = 'IOpenTypedFacet.Com_Microsoft_Todo_Subtask'
 
 
 class Args(Tap):
@@ -32,6 +36,7 @@ class Task:
     is_complete: bool
     completion_date: Optional[str]
     subfolder: Optional[str]
+    subtasks: Optional[str]
 
 
 def task_roots(tasks_dir: Path, subdirs: List[str]) -> List[Path]:
@@ -68,6 +73,32 @@ def parse_date(value: Optional[str]) -> Optional[str]:
     return datetime.strptime(head, '%b %d, %Y').date().isoformat()
 
 
+def extract_subtasks(task_dir: Path) -> Optional[str]:
+    # Subtasks live as a UTF-16LE hex dump in ItemValues.txt after SUBTASK_MARKER.
+    item_values = task_dir / 'ItemValues.txt'
+    if not item_values.is_file():
+        return None
+    lines = item_values.read_text(encoding='utf-8', errors='replace').splitlines()
+    i = 0
+    while i < len(lines) and SUBTASK_MARKER not in lines[i]:
+        i += 1
+    if i >= len(lines):
+        return None
+    i += 1
+    if i < len(lines) and lines[i].startswith('Value:'):
+        i += 1
+    hex_chars = []
+    while i < len(lines) and lines[i].startswith('0x'):
+        after = lines[i].split(':', 1)[1]
+        hex_chars.append(re.split(r' {3,}', after, maxsplit=1)[0].replace(' ', ''))
+        i += 1
+    subtasks_str = bytes.fromhex(''.join(hex_chars)).decode('utf-16-le')
+    subtasks = json.loads(subtasks_str)
+    if subtasks['Values'] is None:
+        return None
+    return subtasks['Values']
+
+
 def parse_task(task_dir: Path, tasks_dir: Path) -> Task:
     lines = (task_dir / 'Task.txt').read_text(encoding='utf-8', errors='replace').splitlines()
     is_complete = field(lines, 'Is complete') == 'yes'
@@ -79,6 +110,7 @@ def parse_task(task_dir: Path, tasks_dir: Path) -> Task:
         is_complete=is_complete,
         completion_date=parse_date(field(lines, 'Modification time')) if is_complete else None,
         subfolder=None if rel == Path('.') else str(rel),
+        subtasks=extract_subtasks(task_dir),
     )
 
 
@@ -99,6 +131,7 @@ def main() -> None:
         for task_dir in iter_task_dirs(root):
             task = parse_task(task_dir, tasks_dir)
             print(task.title if task.title is not None else f'<no subject> ({task_dir})')
+            print(str(task.subtasks) + '\n' if task.subtasks is not None else f'<no subtask>\n')
 
 
 if __name__ == '__main__':
