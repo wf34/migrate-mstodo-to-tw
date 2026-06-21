@@ -136,7 +136,8 @@ def main() -> None:
     for root in task_roots(tasks_dir, args.subdir):
         for task_dir in iter_task_dirs(root):
             task = parse_task(task_dir, tasks_dir)
-            print(task.title if task.title is not None else f'<no subject> ({task_dir})')
+            mark_ = '✓' if task.is_complete else '○'
+            print(mark_ + ' ' + task.title if task.title is not None else f'<no subject> ({task_dir})')
             print(str(task.subtasks) + '\n' if task.subtasks is not None else f'<no subtask>\n')
 
 
