@@ -113,17 +113,23 @@ class _HtmlText(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.parts: List[str] = []
+        self._href: Optional[str] = None
 
     def handle_data(self, data: str) -> None:
         self.parts.append(re.sub(r'\s+', ' ', data))
 
     def handle_starttag(self, tag, attrs) -> None:
-        if tag in self._BLOCKS:
+        if tag in self._BLOCKS and tag != 'div':
             self.parts.append('\n')
+        elif tag == 'a':
+            self._href = dict(attrs).get('href')
 
     def handle_endtag(self, tag) -> None:
         if tag in self._BLOCKS:
             self.parts.append('\n')
+        elif tag == 'a' and self._href:
+            self.parts.append(f' ({self._href})')
+            self._href = None
 
 
 def html_to_text(html: str) -> str:
@@ -138,11 +144,14 @@ def html_to_text(html: str) -> str:
 
 
 def extract_comment(task_dir: Path) -> Optional[str]:
-    # Task comments are stored as HTML in Message.html; keep the visible text only.
+    # Task comments are stored as HTML in Message.html; keep visible text and link hrefs.
     message = task_dir / 'Message.html'
     if not message.is_file():
         return None
-    return html_to_text(message.read_text(encoding='utf-8', errors='replace')) or None
+    raw = message.read_bytes()
+    charset = re.search(rb'charset=([\w-]+)', raw, re.IGNORECASE)
+    encoding = 'koi8-r' if charset and charset.group(1).lower() == b'koi8-r' else 'utf-8'
+    return html_to_text(raw.decode(encoding, errors='replace')) or None
 
 
 def parse_task(task_dir: Path, tasks_dir: Path) -> Task:
