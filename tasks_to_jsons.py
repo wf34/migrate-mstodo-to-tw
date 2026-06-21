@@ -144,14 +144,17 @@ def html_to_text(html: str) -> str:
 
 
 def extract_comment(task_dir: Path) -> Optional[str]:
-    # Task comments are stored as HTML in Message.html; keep visible text and link hrefs.
-    message = task_dir / 'Message.html'
-    if not message.is_file():
-        return None
-    raw = message.read_bytes()
-    charset = re.search(rb'charset=([\w-]+)', raw, re.IGNORECASE)
-    encoding = 'koi8-r' if charset and charset.group(1).lower() == b'koi8-r' else 'utf-8'
-    return html_to_text(raw.decode(encoding, errors='replace')) or None
+    # Comments live either as HTML in Message.html or as plain text in Message.txt.
+    html = task_dir / 'Message.html'
+    if html.is_file() and html.stat().st_size:
+        raw = html.read_bytes()
+        charset = re.search(rb'charset=([\w-]+)', raw, re.IGNORECASE)
+        encoding = 'koi8-r' if charset and charset.group(1).lower() == b'koi8-r' else 'utf-8'
+        return html_to_text(raw.decode(encoding, errors='replace')) or None
+    text = task_dir / 'Message.txt'
+    if text.is_file() and text.stat().st_size:
+        return text.read_text(encoding='utf-8', errors='replace').strip() or None
+    return None
 
 
 def parse_task(task_dir: Path, tasks_dir: Path) -> Task:
