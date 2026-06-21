@@ -36,7 +36,7 @@ class Task:
     is_complete: bool
     completion_date: Optional[str]
     subfolder: Optional[str]
-    subtasks: Optional[str]
+    subtasks: Optional[List[str]]
 
 
 def task_roots(tasks_dir: Path, subdirs: List[str]) -> List[Path]:
@@ -73,7 +73,12 @@ def parse_date(value: Optional[str]) -> Optional[str]:
     return datetime.strptime(head, '%b %d, %Y').date().isoformat()
 
 
-def extract_subtasks(task_dir: Path) -> Optional[str]:
+def format_subtask(subtask: dict) -> str:
+    mark = '✓' if subtask.get('IsCompleted') else '○'
+    return f'{mark} {subtask.get("Subject")}'
+
+
+def extract_subtasks(task_dir: Path) -> Optional[List[str]]:
     # Subtasks live as a UTF-16LE hex dump in ItemValues.txt after SUBTASK_MARKER.
     item_values = task_dir / 'ItemValues.txt'
     if not item_values.is_file():
@@ -93,10 +98,11 @@ def extract_subtasks(task_dir: Path) -> Optional[str]:
         hex_chars.append(re.split(r' {3,}', after, maxsplit=1)[0].replace(' ', ''))
         i += 1
     subtasks_str = bytes.fromhex(''.join(hex_chars)).decode('utf-16-le')
-    subtasks = json.loads(subtasks_str)
-    if subtasks['Values'] is None:
+    values = json.loads(subtasks_str)['Values']
+    if not values:
         return None
-    return subtasks['Values']
+    values.sort(key=lambda s: s.get('CreatedDateTime') or '')
+    return [format_subtask(s) for s in values]
 
 
 def parse_task(task_dir: Path, tasks_dir: Path) -> Task:
