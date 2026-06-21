@@ -6,6 +6,8 @@ and prints the task names. It writes nothing yet.
 """
 
 import sys
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Iterator, List, Optional
 
@@ -20,6 +22,16 @@ class Args(Tap):
     def configure(self) -> None:
         self.add_argument('input_dir')
         self.add_argument('output_dir')
+
+
+@dataclass
+class Task:
+    title: Optional[str]
+    creation_date: Optional[str]
+    starred: bool
+    is_complete: bool
+    completion_date: Optional[str]
+    subfolder: Optional[str]
 
 
 def task_roots(tasks_dir: Path, subdirs: List[str]) -> List[Path]:
@@ -40,13 +52,34 @@ def iter_task_dirs(root: Path) -> Iterator[Path]:
         yield task_file.parent
 
 
-def read_subject(task_dir: Path) -> Optional[str]:
-    """Return the Subject value from a task's Task.txt, or None if absent."""
-    text = (task_dir / 'Task.txt').read_text(encoding='utf-8', errors='replace')
-    for line in text.splitlines():
-        if line.startswith('Subject:'):
-            return line.split(':', 1)[1].strip()
+def field(lines: List[str], key: str) -> Optional[str]:
+    prefix = key + ':'
+    for line in lines:
+        if line.startswith(prefix):
+            return line[len(prefix):].strip()
     return None
+
+
+def parse_date(value: Optional[str]) -> Optional[str]:
+    # value looks like "Mar 07, 2020 16:46:36.048241600 UTC"; keep the date only.
+    if not value:
+        return None
+    head = ' '.join(value.split()[:3])
+    return datetime.strptime(head, '%b %d, %Y').date().isoformat()
+
+
+def parse_task(task_dir: Path, tasks_dir: Path) -> Task:
+    lines = (task_dir / 'Task.txt').read_text(encoding='utf-8', errors='replace').splitlines()
+    is_complete = field(lines, 'Is complete') == 'yes'
+    rel = task_dir.parent.relative_to(tasks_dir)
+    return Task(
+        title=field(lines, 'Subject'),
+        creation_date=parse_date(field(lines, 'Creation time')),
+        starred=field(lines, 'Importance') == 'High',
+        is_complete=is_complete,
+        completion_date=parse_date(field(lines, 'Modification time')) if is_complete else None,
+        subfolder=None if rel == Path('.') else str(rel),
+    )
 
 
 def main() -> None:
@@ -64,8 +97,8 @@ def main() -> None:
 
     for root in task_roots(tasks_dir, args.subdir):
         for task_dir in iter_task_dirs(root):
-            subject = read_subject(task_dir)
-            print(subject if subject is not None else f'<no subject> ({task_dir})')
+            task = parse_task(task_dir, tasks_dir)
+            print(task.title if task.title is not None else f'<no subject> ({task_dir})')
 
 
 if __name__ == '__main__':
