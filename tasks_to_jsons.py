@@ -9,7 +9,7 @@ import re
 import json
 import sys
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterator, List, Optional
@@ -67,12 +67,14 @@ def field(lines: List[str], key: str) -> Optional[str]:
     return None
 
 
-def parse_date(value: Optional[str]) -> Optional[str]:
-    # value looks like "Mar 07, 2020 16:46:36.048241600 UTC"; keep the date only.
+def parse_datetime(value: Optional[str]) -> Optional[str]:
+    # value looks like "Mar 07, 2020 16:46:36.048241600 UTC"; %f caps at microseconds.
     if not value:
         return None
-    head = ' '.join(value.split()[:3])
-    return datetime.strptime(head, '%b %d, %Y').date().isoformat()
+    head = ' '.join(value.split()[:4])
+    head = re.sub(r'(\.\d{6})\d*', r'\1', head)
+    dt = datetime.strptime(head, '%b %d, %Y %H:%M:%S.%f').replace(tzinfo=timezone.utc)
+    return dt.isoformat()
 
 
 def format_subtask(subtask: dict) -> str:
@@ -163,10 +165,10 @@ def parse_task(task_dir: Path, tasks_dir: Path) -> Task:
     rel = task_dir.parent.relative_to(tasks_dir)
     return Task(
         title=field(lines, 'Subject'),
-        creation_date=parse_date(field(lines, 'Creation time')),
+        creation_date=parse_datetime(field(lines, 'Creation time')),
         starred=field(lines, 'Importance') == 'High',
         is_complete=is_complete,
-        completion_date=parse_date(field(lines, 'Modification time')) if is_complete else None,
+        completion_date=parse_datetime(field(lines, 'Modification time')) if is_complete else None,
         subfolder=None if rel == Path('.') else str(rel),
         subtasks=extract_subtasks(task_dir),
         comment=extract_comment(task_dir),
