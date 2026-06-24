@@ -14,6 +14,7 @@ from tap import Tap
 
 SUBTASK_MARKER = 'IOpenTypedFacet.Com_Microsoft_Todo_Subtask'
 PROJECT = 'ms-archive'
+TW_DATETIME_FMT = '%Y%m%dT%H%M%SZ'
 
 
 class Args(Tap):
@@ -77,8 +78,14 @@ def parse_datetime(value: Optional[str]) -> Optional[str]:
         return None
     head = ' '.join(value.split()[:4])
     head = re.sub(r'(\.\d{6})\d*', r'\1', head)
-    dt = datetime.strptime(head, '%b %d, %Y %H:%M:%S.%f').replace(tzinfo=timezone.utc)
-    return dt.isoformat()
+    return datetime.strptime(head, '%b %d, %Y %H:%M:%S.%f').strftime(TW_DATETIME_FMT)
+
+
+def iso_to_tw(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    cleaned = re.sub(r'\.\d+', '', value.replace('Z', '+00:00'))
+    return datetime.fromisoformat(cleaned).astimezone(timezone.utc).strftime(TW_DATETIME_FMT)
 
 
 def format_subtask(subtask: Subtask) -> str:
@@ -114,7 +121,7 @@ def extract_subtasks(task_dir: Path) -> Optional[List[str]]:
         Subtask(
             text=s.get('Subject'),
             is_complete=bool(s.get('IsCompleted')),
-            creation_date=s.get('CreatedDateTime'),
+            creation_date=iso_to_tw(s.get('CreatedDateTime')),
         )
         for s in values
     ]
@@ -190,10 +197,10 @@ def comment_entry(task: Task) -> Optional[str]:
     candidates = [task.creation_date]
     if task.subtasks:
         candidates.append(task.subtasks[-1].creation_date)
-    parsed = [datetime.fromisoformat(c.replace('Z', '+00:00')) for c in candidates if c]
+    parsed = [datetime.strptime(c, TW_DATETIME_FMT) for c in candidates if c]
     if not parsed:
         return None
-    return (max(parsed) + timedelta(days=1)).isoformat()
+    return (max(parsed) + timedelta(days=1)).strftime(TW_DATETIME_FMT)
 
 
 def build_annotations(task: Task) -> List[dict]:
