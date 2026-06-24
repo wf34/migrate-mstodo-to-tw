@@ -22,6 +22,8 @@ class Args(Tap):
     output_file: Path  # destination Taskwarrior JSON file (must not exist, .json extension)
     subdir: List[str] = []  # which immediate subdirs of <input_dir>/Tasks to process; empty = all
     project: str = PROJECT
+    use_tag: bool=True
+    add_due_later: bool=False
 
     def configure(self) -> None:
         self.add_argument('input_dir')
@@ -213,17 +215,19 @@ def build_annotations(task: Task) -> List[dict]:
     return annotations
 
 
-def to_taskwarrior(task: Task, assigned_project: str) -> dict:
+def to_taskwarrior(task: Task, args: Args) -> dict:
     out = {
         'description': task.title,
         'status': 'completed' if task.is_complete else 'pending',
         'entry': task.creation_date,
     }
+    if args.add_due_later:
+        out['due'] = '99991230T000000Z'
     if task.is_complete and task.completion_date:
         out['end'] = task.completion_date
-    if task.subfolder:
+    if task.subfolder and args.use_tag:
         out['tags'] = [task.subfolder]
-    out['project'] = assigned_project
+    out['project'] = args.project
     annotations = build_annotations(task)
     if annotations:
         out['annotations'] = annotations
@@ -231,7 +235,7 @@ def to_taskwarrior(task: Task, assigned_project: str) -> dict:
 
 
 def main() -> None:
-    args = Args().parse_args()
+    args = Args(explicit_bool=True).parse_args()
 
     if not args.input_dir.is_dir():
         sys.exit(f'error: input dir does not exist or is not a directory: {args.input_dir}')
@@ -255,7 +259,7 @@ def main() -> None:
             print(str([format_subtask(s) for s in task.subtasks]) + '\n' if task.subtasks is not None else f'<no subtask>\n')
             if task.comment is not None:
                 print('comment: ' + task.comment + '\n')
-            exported.append(to_taskwarrior(task, args.project))
+            exported.append(to_taskwarrior(task, args))
 
     args.output_file.write_text(json.dumps(exported, ensure_ascii=False, indent=2), encoding='utf-8')
 
