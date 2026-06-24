@@ -24,11 +24,15 @@ class Args(Tap):
     project: str = PROJECT
     use_tag: bool=True
     add_due_later: bool=False
-    use_due_date:bool=False
+    use_due_date: bool=False
 
     def configure(self) -> None:
         self.add_argument('input_dir')
         self.add_argument('output_file')
+
+    def process_args(self):
+        if self.add_due_later and self.use_due_date:
+            exit('mutually exclusive args: add_due_later, use_due_date')
 
 
 @dataclass
@@ -192,7 +196,7 @@ def parse_task(task_dir: Path, tasks_dir: Path, args: Args) -> Task:
         starred=field(lines, 'Importance') == 'High',
         is_complete=is_complete,
         completion_date=parse_datetime(field(lines, 'Modification time')) if is_complete else None,
-        due_date=parse_datetime(field(lines, 'Due Date')) if args.use_due_date else None,
+        due_date=parse_datetime(field(lines, 'Due date')) if args.use_due_date else None,
         subfolder=None if rel == Path('.') else str(rel),
         subtasks=extract_subtasks(task_dir),
         comment=extract_comment(task_dir),
