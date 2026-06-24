@@ -30,6 +30,13 @@ class Args(Tap):
 
 
 @dataclass
+class Subtask:
+    text: Optional[str]
+    is_complete: bool
+    creation_date: Optional[str]
+
+
+@dataclass
 class Task:
     title: Optional[str]
     creation_date: Optional[str]
@@ -37,7 +44,7 @@ class Task:
     is_complete: bool
     completion_date: Optional[str]
     subfolder: Optional[str]
-    subtasks: Optional[List[str]]
+    subtasks: Optional[List[Subtask]]
     comment: Optional[str]
 
 
@@ -77,9 +84,9 @@ def parse_datetime(value: Optional[str]) -> Optional[str]:
     return dt.isoformat()
 
 
-def format_subtask(subtask: dict) -> str:
-    mark = '✓' if subtask.get('IsCompleted') else '○'
-    return f'{mark} {subtask.get("Subject")}'
+def format_subtask(subtask: Subtask) -> str:
+    mark = '✓' if subtask.is_complete else '○'
+    return f'{mark} {subtask.text}'
 
 
 def extract_subtasks(task_dir: Path) -> Optional[List[str]]:
@@ -106,7 +113,14 @@ def extract_subtasks(task_dir: Path) -> Optional[List[str]]:
     if not values:
         return None
     values.sort(key=lambda s: s.get('CreatedDateTime') or '')
-    return [format_subtask(s) for s in values]
+    return [
+        Subtask(
+            text=s.get('Subject'),
+            is_complete=bool(s.get('IsCompleted')),
+            creation_date=s.get('CreatedDateTime'),
+        )
+        for s in values
+    ]
 
 
 class _HtmlText(HTMLParser):
@@ -193,7 +207,7 @@ def main() -> None:
             task = parse_task(task_dir, tasks_dir)
             mark_ = '✓' if task.is_complete else '○'
             print(mark_ + ' ' + task.title if task.title is not None else f'<no subject> ({task_dir})')
-            print(str(task.subtasks) + '\n' if task.subtasks is not None else f'<no subtask>\n')
+            print(str([format_subtask(s) for s in task.subtasks]) + '\n' if task.subtasks is not None else f'<no subtask>\n')
             if task.comment is not None:
                 print('comment: ' + task.comment + '\n')
 
