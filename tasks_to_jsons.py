@@ -24,6 +24,7 @@ class Args(Tap):
     project: str = PROJECT
     use_tag: bool=True
     add_due_later: bool=False
+    use_due_date:bool=False
 
     def configure(self) -> None:
         self.add_argument('input_dir')
@@ -44,6 +45,7 @@ class Task:
     starred: bool
     is_complete: bool
     completion_date: Optional[str]
+    due_date: Optional[str]
     subfolder: Optional[str]
     subtasks: Optional[List[Subtask]]
     comment: Optional[str]
@@ -180,7 +182,7 @@ def extract_comment(task_dir: Path) -> Optional[str]:
     return None
 
 
-def parse_task(task_dir: Path, tasks_dir: Path) -> Task:
+def parse_task(task_dir: Path, tasks_dir: Path, args: Args) -> Task:
     lines = (task_dir / 'Task.txt').read_text(encoding='utf-8', errors='replace').splitlines()
     is_complete = field(lines, 'Is complete') == 'yes'
     rel = task_dir.parent.relative_to(tasks_dir)
@@ -190,6 +192,7 @@ def parse_task(task_dir: Path, tasks_dir: Path) -> Task:
         starred=field(lines, 'Importance') == 'High',
         is_complete=is_complete,
         completion_date=parse_datetime(field(lines, 'Modification time')) if is_complete else None,
+        due_date=parse_datetime(field(lines, 'Due Date')) if args.use_due_date else None,
         subfolder=None if rel == Path('.') else str(rel),
         subtasks=extract_subtasks(task_dir),
         comment=extract_comment(task_dir),
@@ -223,6 +226,8 @@ def to_taskwarrior(task: Task, args: Args) -> dict:
     }
     if args.add_due_later:
         out['due'] = '99991230T000000Z'
+    if args.use_due_date and task.due_date:
+        out['due'] = task.due_date
     if task.is_complete and task.completion_date:
         out['end'] = task.completion_date
     if task.subfolder and args.use_tag:
@@ -253,7 +258,7 @@ def main() -> None:
     exported = []
     for root in task_roots(tasks_dir, args.subdir):
         for task_dir in iter_task_dirs(root):
-            task = parse_task(task_dir, tasks_dir)
+            task = parse_task(task_dir, tasks_dir, args)
             mark_ = '✓' if task.is_complete else '○'
             print(mark_ + ' ' + task.title if task.title is not None else f'<no subject> ({task_dir})')
             print(str([format_subtask(s) for s in task.subtasks]) + '\n' if task.subtasks is not None else f'<no subtask>\n')
