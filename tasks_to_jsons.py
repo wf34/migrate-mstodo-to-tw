@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""Export Microsoft TODO tasks (pffexport output) into human-readable JSON.
-
-For now this is a skeleton: it walks the input directory, finds every task,
-and prints the task names. It writes nothing yet.
-"""
+"""Export Microsoft TODO tasks (pffexport output) into a Taskwarrior JSON file."""
 
 import re
 import json
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterator, List, Optional
@@ -17,16 +13,17 @@ from typing import Iterator, List, Optional
 from tap import Tap
 
 SUBTASK_MARKER = 'IOpenTypedFacet.Com_Microsoft_Todo_Subtask'
+PROJECT = 'ms-archive'
 
 
 class Args(Tap):
-    input_dir: Path   # pffexport output directory to read tasks from
-    output_dir: Path  # destination directory for per-task JSON files (must not exist)
+    input_dir: Path    # pffexport output directory to read tasks from
+    output_file: Path  # destination Taskwarrior JSON file (must not exist, .json extension)
     subdir: List[str] = []  # which immediate subdirs of <input_dir>/Tasks to process; empty = all
 
     def configure(self) -> None:
         self.add_argument('input_dir')
-        self.add_argument('output_dir')
+        self.add_argument('output_file')
 
 
 @dataclass
@@ -189,19 +186,59 @@ def parse_task(task_dir: Path, tasks_dir: Path) -> Task:
     )
 
 
+def comment_entry(task: Task) -> Optional[str]:
+    candidates = [task.creation_date]
+    if task.subtasks:
+        candidates.append(task.subtasks[-1].creation_date)
+    parsed = [datetime.fromisoformat(c.replace('Z', '+00:00')) for c in candidates if c]
+    if not parsed:
+        return None
+    return (max(parsed) + timedelta(days=1)).isoformat()
+
+
+def build_annotations(task: Task) -> List[dict]:
+    annotations: List[dict] = []
+    for subtask in task.subtasks or []:
+        annotations.append({'entry': subtask.creation_date, 'description': format_subtask(subtask)})
+    if task.comment:
+        annotations.append({'entry': comment_entry(task), 'description': task.comment})
+    return annotations
+
+
+def to_taskwarrior(task: Task) -> dict:
+    out = {
+        'description': task.title,
+        'status': 'completed' if task.is_complete else 'pending',
+        'entry': task.creation_date,
+    }
+    if task.is_complete and task.completion_date:
+        out['end'] = task.completion_date
+    if task.subfolder:
+        out['tags'] = [task.subfolder]
+    out['project'] = PROJECT
+    annotations = build_annotations(task)
+    if annotations:
+        out['annotations'] = annotations
+    return out
+
+
 def main() -> None:
     args = Args().parse_args()
 
     if not args.input_dir.is_dir():
         sys.exit(f'error: input dir does not exist or is not a directory: {args.input_dir}')
 
-    if args.output_dir.exists():
-        sys.exit(f'error: output dir already exists, refusing to overwrite: {args.output_dir}')
+    if args.output_file.suffix != '.json':
+        sys.exit(f'error: output file must have a .json extension: {args.output_file}')
+
+    if args.output_file.exists():
+        sys.exit(f'error: output file already exists, refusing to overwrite: {args.output_file}')
 
     tasks_dir = args.input_dir / 'Tasks'
     if not tasks_dir.is_dir():
         sys.exit(f'error: no Tasks dir under input dir: {tasks_dir}')
 
+    exported = []
     for root in task_roots(tasks_dir, args.subdir):
         for task_dir in iter_task_dirs(root):
             task = parse_task(task_dir, tasks_dir)
@@ -210,6 +247,9 @@ def main() -> None:
             print(str([format_subtask(s) for s in task.subtasks]) + '\n' if task.subtasks is not None else f'<no subtask>\n')
             if task.comment is not None:
                 print('comment: ' + task.comment + '\n')
+            exported.append(to_taskwarrior(task))
+
+    args.output_file.write_text(json.dumps(exported, ensure_ascii=False, indent=2), encoding='utf-8')
 
 
 if __name__ == '__main__':
