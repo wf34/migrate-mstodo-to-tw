@@ -21,6 +21,7 @@ class Args(Tap):
     input_dir: Path    # pffexport output directory to read tasks from
     output_file: Path  # destination Taskwarrior JSON file (must not exist, .json extension)
     subdir: List[str] = []  # which immediate subdirs of <input_dir>/Tasks to process; empty = all
+    project: str = PROJECT
 
     def configure(self) -> None:
         self.add_argument('input_dir')
@@ -212,7 +213,7 @@ def build_annotations(task: Task) -> List[dict]:
     return annotations
 
 
-def to_taskwarrior(task: Task) -> dict:
+def to_taskwarrior(task: Task, assigned_project: str) -> dict:
     out = {
         'description': task.title,
         'status': 'completed' if task.is_complete else 'pending',
@@ -222,7 +223,7 @@ def to_taskwarrior(task: Task) -> dict:
         out['end'] = task.completion_date
     if task.subfolder:
         out['tags'] = [task.subfolder]
-    out['project'] = PROJECT
+    out['project'] = assigned_project
     annotations = build_annotations(task)
     if annotations:
         out['annotations'] = annotations
@@ -254,7 +255,7 @@ def main() -> None:
             print(str([format_subtask(s) for s in task.subtasks]) + '\n' if task.subtasks is not None else f'<no subtask>\n')
             if task.comment is not None:
                 print('comment: ' + task.comment + '\n')
-            exported.append(to_taskwarrior(task))
+            exported.append(to_taskwarrior(task, args.project))
 
     args.output_file.write_text(json.dumps(exported, ensure_ascii=False, indent=2), encoding='utf-8')
 
